@@ -1,0 +1,19 @@
+#!/bin/bash
+
+action=$1
+flag=$2
+shift
+
+[ "$action" = "usage" ] && {
+  echo "  An interactive ls:"
+  echo "    lsi"
+  echo "      starts an interactive shell for managing todos"
+  echo "    lsi ~/shared"
+  echo "      starts the shell using a different TODO_DIR"
+  echo ""
+  exit
+}
+
+[ "$action" = "lsi" ] && {
+     python3 ${TODO_ACTIONS_DIR}/lsi/lsi.py "$TODO_DIR" $flag
+}
