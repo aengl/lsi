@@ -5,20 +5,33 @@ import re
 import sys
 import argparse
 import curses
-from curses import wrapper
 
 RE_PRIORITY = r'\(([A-Z])\)'
 RE_CONTEXT_OR_PROJECT = r'([@+][^\s]+)'
+COLORS = [
+    '#F5D761',
+    '#A4F54C',
+    '#78C1F3',
+    '#837CC5',
+    '#CCCCCC'
+]
 
 
-def get_priority(line):
-    match = re.search(RE_PRIORITY, line)
+def get_priority(item):
+    match = re.search(RE_PRIORITY, item[1])
     return match and match.group(1) or None
 
 
-def get_priority_as_number(line):
-    priority = get_priority(line)
-    return priority and ord(priority) or sys.maxsize
+def get_priority_as_number(item, maximum=sys.maxsize):
+    priority = get_priority(item)
+    if priority == None:
+        return maximum
+    return min(maximum, ord(priority) - ord('A'))
+
+
+def hex_to_rgb(s):
+    mul = 1000 / 255
+    return tuple(round(int(s.lstrip('#')[i:i + 2], 16) * mul) for i in (0, 2, 4))
 
 
 class TodoListViewer:
@@ -40,20 +53,23 @@ class TodoListViewer:
         self.screen.border(0)
         curses.noecho()
         curses.cbreak()
+        curses.curs_set(0)
+        self.init_colors()
 
-    def restore_terminal(self):
-        curses.initscr()
-        curses.nocbreak()
-        curses.echo()
-        curses.endwin()
+    def init_colors(self):
+        curses.start_color()
+        for color_index, color in enumerate(COLORS):
+            red, green, blue = hex_to_rgb(color)
+            curses.init_color(color_index + 1, red, green, blue)
+            curses.init_pair(color_index + 1, color_index + 1, 0)
 
     def read_todo_file(self):
         self.items.clear()
         with open(os.path.join(self.root, 'todo.txt'), 'r') as todofile:
             self.items = sorted([(index + 1, line)
-                                 for index, line in enumerate(todofile.readlines())], key=lambda x: get_priority_as_number(x[1]))
+                                 for index, line in enumerate(todofile.readlines())], key=lambda x: get_priority_as_number(x))
 
-    def run(self):
+    def run(self, *args, **kwargs):
         try:
             self.init_screen()
             self.read_todo_file()
@@ -62,11 +78,6 @@ class TodoListViewer:
                 self.handle_input()
         except KeyboardInterrupt:
             pass
-        except:
-            import traceback
-            traceback.print_exc(file=sys.stdout)
-        finally:
-            self.restore_terminal()
 
     def handle_input(self):
         c = self.screen.getch()
@@ -78,7 +89,9 @@ class TodoListViewer:
             self.quit = True
 
     def print_item(self, index, item, selected=False):
-        attr = selected and curses.A_BOLD or 0
+        color_index = get_priority_as_number(item, maximum=len(COLORS) - 1) + 1
+        attr = curses.color_pair(color_index) | (
+            selected and curses.A_BOLD or 0)
         linenum, line = item
         line = re.sub(RE_PRIORITY + ' ', '', line)
         line = re.sub(RE_CONTEXT_OR_PROJECT, r'\1', line)
@@ -115,7 +128,7 @@ def main():
     if not os.path.isdir(root):
         print("Error: %s is not a directory" % args.dir)
         sys.exit(1)
-    TodoListViewer(root).run()
+    curses.wrapper(TodoListViewer(root).run)
 
 
 if __name__ == '__main__':
