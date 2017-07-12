@@ -8,6 +8,7 @@ import re
 import sys
 import argparse
 import curses
+import subprocess
 
 RE_PRIORITY = r'\(([A-Z])\)'
 RE_CONTEXT_OR_PROJECT = r'([@+][^\s]+)'
@@ -22,7 +23,6 @@ COLORS = [
 KEY_UP = curses.KEY_UP
 KEY_DOWN = curses.KEY_DOWN
 KEY_ESC = 27
-KEY_RETURN = 100
 
 
 def get_priority(item):
@@ -110,14 +110,19 @@ class TodoListViewer:
         """
         try:
             self._init()
-            self._read_todo_file()
             while not self.close:
                 self._render()
                 self._handle_input()
         except KeyboardInterrupt:
             pass
 
+    def _run_subprocess(self, command):
+        curses.endwin()
+        subprocess.run(command)
+        self._init()
+
     def _init(self):
+        self._read_todo_file()
         self.screen = curses.initscr()
         self.screen.keypad(1)
         self.screen.border(0)
@@ -138,13 +143,20 @@ class TodoListViewer:
 
     def _handle_input(self):
         key = self.screen.getch()
+        selected_id = self.selected_item[0]
         if key in (ord('k'), KEY_UP):
             self._scroll(-1)
         elif key in (ord('j'), KEY_DOWN):
             self._scroll(1)
         elif key in (ord('q'), KEY_ESC):
             self.close = True
-        elif key in (ord('d'), KEY_RETURN):
+        elif key == ord('r'):
+            self._read_todo_file()
+        elif key == ord('d'):
+            self._run_subprocess(['todo.sh', 'do', str(selected_id)])
+        elif key == ord('n'):
+            self._run_subprocess(['todo.sh', 'nav', str(selected_id)])
+        elif key in (ord(' '), ord('\n')):
             Dialog(self.selected_item).run()
 
     def _scroll(self, delta):
@@ -179,15 +191,8 @@ class TodoListViewer:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("dir")
-    parser.add_argument(
-        "share", nargs="?", help="absolute or relative path to the share")
     args = parser.parse_args()
-    root = args.share and os.path.abspath(
-        os.path.join(args.dir, args.share)) or args.dir
-    if not os.path.isdir(root):
-        print("Error: %s is not a directory" % args.dir)
-        sys.exit(1)
-    curses.wrapper(TodoListViewer(root).run)
+    curses.wrapper(TodoListViewer(args.dir).run)
 
 
 if __name__ == '__main__':
