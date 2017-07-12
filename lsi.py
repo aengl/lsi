@@ -1,3 +1,6 @@
+""" An interactive viewer for todo-txt.
+"""
+
 #!/usr/bin/env python3
 
 import os
@@ -15,6 +18,11 @@ COLORS = [
     '#837CC5',
     '#CCCCCC'
 ]
+
+KEY_UP = curses.KEY_UP
+KEY_DOWN = curses.KEY_DOWN
+KEY_ESC = 27
+KEY_RETURN = 100
 
 
 def get_priority(item):
@@ -38,9 +46,11 @@ class Dialog:
     """ A popup dialog that lets us interact with todo items.
     """
 
-    def __init__(self):
+    def __init__(self, item):
         self.dialog = None
         self.close = False
+        self.item = item
+        self.actions = []
 
     def run(self):
         """ Shows the dialog and enters a rendering loop.
@@ -51,25 +61,27 @@ class Dialog:
             self._handle_input()
 
     def _init(self):
-        self.dialog = curses.newwin(50, 10)
+        self.dialog = curses.newwin(10, curses.COLS, 0, 0)
+        self.actions = ['do', 'nav']
 
     def _handle_input(self):
-        c = self.dialog.getch()
-        if c == curses.KEY_UP:
+        key = self.dialog.getch()
+        if key in (ord('k'), KEY_UP):
             self._navigate(-1)
-        elif c == curses.KEY_DOWN:
+        elif key in (ord('j'), KEY_DOWN):
             self._navigate(1)
-        elif c == ord('q') or c == 27:  # ESC_KEY
+        elif key in (ord('q'), KEY_ESC):
             self.close = True
-        elif c == ord('d') or c == curses.KEY_ENTER:
-            Dialog().run()
 
     def _navigate(self, delta):
         pass
 
     def _render(self):
         self.dialog.erase()
-        self.dialog.addstr(0, 0, 'test')
+        self.dialog.addstr(1, 2, '{:} {:}'.format(*self.item))
+        for action_index, action in enumerate(self.actions):
+            self.dialog.addstr(action_index + 3, 2, action)
+        self.dialog.box()
         self.dialog.refresh()
 
 
@@ -78,7 +90,11 @@ class TodoListViewer:
     """
 
     @property
-    def num_available_lines(self):
+    def selected_item(self):
+        return self.items[self.selected_line]
+
+    @property
+    def _num_available_lines(self):
         return curses.LINES - 2
 
     def __init__(self, root):
@@ -121,23 +137,23 @@ class TodoListViewer:
                                  for index, line in enumerate(todofile.readlines())], key=get_priority_as_number)
 
     def _handle_input(self):
-        c = self.screen.getch()
-        if c == curses.KEY_UP:
+        key = self.screen.getch()
+        if key in (ord('k'), KEY_UP):
             self._scroll(-1)
-        elif c == curses.KEY_DOWN:
+        elif key in (ord('j'), KEY_DOWN):
             self._scroll(1)
-        elif c == ord('q') or c == 27:  # ESC_KEY
+        elif key in (ord('q'), KEY_ESC):
             self.close = True
-        elif c == ord('d') or c == curses.KEY_ENTER:
-            Dialog().run()
+        elif key in (ord('d'), KEY_RETURN):
+            Dialog(self.selected_item).run()
 
     def _scroll(self, delta):
         self.selected_line = max(
             0, min(len(self.items) - 1, self.selected_line + delta))
         if self.selected_line < self.scroll_offset:
             self.scroll_offset = self.selected_line
-        elif self.selected_line > self.num_available_lines + self.scroll_offset:
-            self.scroll_offset = self.selected_line - self.num_available_lines
+        elif self.selected_line > self._num_available_lines + self.scroll_offset:
+            self.scroll_offset = self.selected_line - self._num_available_lines
 
     def _print_item(self, index, item, selected=False):
         color_index = get_priority_as_number(item, maximum=len(COLORS) - 1) + 1
@@ -152,7 +168,7 @@ class TodoListViewer:
     def _render(self):
         self.screen.erase()
         top = self.scroll_offset
-        bottom = self.scroll_offset + self.num_available_lines + 1
+        bottom = self.scroll_offset + self._num_available_lines + 1
         for index, item in enumerate(self.items[top:bottom]):
             self._print_item(index, item)
         self._print_item(self.selected_line - self.scroll_offset,
