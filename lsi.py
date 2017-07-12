@@ -1,7 +1,6 @@
-""" An interactive viewer for todo-txt.
-"""
-
 #!/usr/bin/env python3
+
+"""An interactive viewer for todo-txt."""
 
 import os
 import re
@@ -10,8 +9,6 @@ import argparse
 import curses
 import subprocess
 
-RE_PRIORITY = r'\(([A-Z])\)'
-RE_CONTEXT_OR_PROJECT = r'([@+][^\s]+)'
 COLORS = [
     '#F5D761',
     '#A4F54C',
@@ -19,7 +16,8 @@ COLORS = [
     '#837CC5',
     '#CCCCCC'
 ]
-
+RE_PRIORITY = r'\(([A-Z])\)'
+RE_CONTEXT_OR_PROJECT = r'([@+][^\s]+)'
 KEY_UP = curses.KEY_UP
 KEY_DOWN = curses.KEY_DOWN
 KEY_ESC = 27
@@ -32,7 +30,7 @@ def get_priority(item):
 
 def get_priority_as_number(item, maximum=sys.maxsize):
     priority = get_priority(item)
-    if priority == None:
+    if priority is None:
         return maximum
     return min(maximum, ord(priority) - ord('A'))
 
@@ -47,9 +45,18 @@ def hex_to_rgb(s):
     return tuple(round(int(s.lstrip('#')[i:i + 2], 16) * mul) for i in (0, 2, 4))
 
 
+def get_num_lines():
+    # pylint: disable=E1101
+    return curses.LINES - 2
+
+
+def get_num_columns():
+    # pylint: disable=E1101
+    return curses.COLS
+
+
 class Dialog:
-    """ A popup dialog that lets us interact with todo items.
-    """
+    """A popup dialog that lets us interact with todo items."""
 
     def __init__(self, item):
         self.dialog = None
@@ -58,15 +65,14 @@ class Dialog:
         self.actions = []
 
     def run(self):
-        """ Shows the dialog and enters a rendering loop.
-        """
+        """Shows the dialog and enters a rendering loop."""
         self._init()
         while not self.close:
             self._render()
             self._handle_input()
 
     def _init(self):
-        self.dialog = curses.newwin(10, curses.COLS, 0, 0)
+        self.dialog = curses.newwin(10, get_num_columns(), 0, 0)
         self.actions = ['do', 'nav']
 
     def _handle_input(self):
@@ -91,16 +97,15 @@ class Dialog:
 
 
 class TodoListViewer:
-    """ A viewer that lets us browse and filter todo items.
-    """
+    """A viewer that lets us browse and filter todo items."""
 
     @property
     def selected_item(self):
+        """Returns the currently selected item, which is a tuple in the form of:
+        (item_id, line), item_id being the line number in the todo.txt and line
+        being the text of that line.
+        """
         return self.items[self.selected_line]
-
-    @property
-    def _num_available_lines(self):
-        return curses.LINES - 2
 
     def __init__(self, root):
         self.root = root
@@ -111,8 +116,7 @@ class TodoListViewer:
         self.items = []
 
     def run(self, *_):
-        """ Shows the viewer and enters a rendering loop.
-        """
+        """Shows the viewer and enters a rendering loop."""
         try:
             self._init()
             while not self.close:
@@ -122,8 +126,7 @@ class TodoListViewer:
             pass
 
     def select_item(self, item_id):
-        """ Selects the item with a specific id.
-        """
+        """Selects the item with a specific id."""
         for item_index, item in enumerate(self.items):
             if item[0] == item_id:
                 self.selected_line = item_index
@@ -152,8 +155,9 @@ class TodoListViewer:
     def _read_todo_file(self):
         self.items.clear()
         with open(os.path.join(self.root, 'todo.txt'), 'r') as todofile:
-            self.items = sorted([(index + 1, line)
-                                 for index, line in enumerate(todofile.readlines())], key=get_priority_as_number)
+            lines = todofile.readlines()
+        items = [(index + 1, line) for index, line in enumerate(lines)]
+        self.items = sorted(items, key=get_priority_as_number)
 
     def _handle_input(self):
         key = self.screen.getch()
@@ -199,8 +203,8 @@ class TodoListViewer:
     def _move_selection_into_view(self):
         if self.selected_line < self.scroll_offset:
             self.scroll_offset = self.selected_line
-        elif self.selected_line > self._num_available_lines + self.scroll_offset:
-            self.scroll_offset = self.selected_line - self._num_available_lines
+        elif self.selected_line > get_num_lines() + self.scroll_offset:
+            self.scroll_offset = self.selected_line - get_num_lines()
 
     def _print_item(self, index, item, selected=False):
         color_index = get_priority_as_number(item, maximum=len(COLORS) - 1) + 1
@@ -208,14 +212,14 @@ class TodoListViewer:
             selected and curses.A_REVERSE or 0)
         linenum, line = item
         line = re.sub(RE_PRIORITY + ' ', '', line)
-        line = re.sub(RE_CONTEXT_OR_PROJECT, r'\1', line)
+        # line = re.sub(RE_CONTEXT_OR_PROJECT, r'\1', line)
         self.screen.addnstr(
             index, 0, '{:02d} {:}'.format(linenum, line), 80, attr)
 
     def _render(self):
         self.screen.erase()
         top = self.scroll_offset
-        bottom = self.scroll_offset + self._num_available_lines + 1
+        bottom = self.scroll_offset + get_num_lines() + 1
         for index, item in enumerate(self.items[top:bottom]):
             self._print_item(index, item)
         self._print_item(self.selected_line - self.scroll_offset,
