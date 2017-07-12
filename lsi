@@ -8,8 +8,6 @@ shift
   echo "  An interactive ls:"
   echo "    lsi"
   echo "      starts an interactive shell for managing todos"
-  echo "    lsi ~/shared"
-  echo "      starts the shell using a different TODO_DIR"
   echo ""
   exit
 }

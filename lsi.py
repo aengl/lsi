@@ -37,6 +37,11 @@ def get_priority_as_number(item, maximum=sys.maxsize):
     return min(maximum, ord(priority) - ord('A'))
 
 
+def get_bumped_priority(item, delta):
+    priority = get_priority(item)
+    return chr(max(ord('A'), min(ord('Z'), ord(priority) - delta)))
+
+
 def hex_to_rgb(s):
     mul = 1000 / 255
     return tuple(round(int(s.lstrip('#')[i:i + 2], 16) * mul) for i in (0, 2, 4))
@@ -116,6 +121,15 @@ class TodoListViewer:
         except KeyboardInterrupt:
             pass
 
+    def select_item(self, item_id):
+        """ Selects the item with a specific id.
+        """
+        for item_index, item in enumerate(self.items):
+            if item[0] == item_id:
+                self.selected_line = item_index
+                self._move_selection_into_view()
+                break
+
     def _run_subprocess(self, command):
         curses.endwin()
         subprocess.run(command)
@@ -144,24 +158,45 @@ class TodoListViewer:
     def _handle_input(self):
         key = self.screen.getch()
         selected_id = self.selected_item[0]
+        # j/k: up/down
         if key in (ord('k'), KEY_UP):
             self._scroll(-1)
         elif key in (ord('j'), KEY_DOWN):
             self._scroll(1)
+        # q: quit
         elif key in (ord('q'), KEY_ESC):
             self.close = True
+        # r: refresh
         elif key == ord('r'):
             self._read_todo_file()
+        # d: done
         elif key == ord('d'):
             self._run_subprocess(['todo.sh', 'do', str(selected_id)])
+        # n: nav
         elif key == ord('n'):
             self._run_subprocess(['todo.sh', 'nav', str(selected_id)])
+        # SPACE/RETURN: Enter item dialog
         elif key in (ord(' '), ord('\n')):
             Dialog(self.selected_item).run()
+        # -/=: Bump priority
+        elif key in (ord('='), ord('-')):
+            delta = (key == ord('=')) and 1 or -1
+            new_priority = get_bumped_priority(self.selected_item, delta)
+            self._run_subprocess(
+                ['todo.sh', 'pri', str(selected_id), new_priority])
+            self.select_item(selected_id)
+        # A-Z: Set priority
+        elif key >= ord('A') and key <= ord('Z'):
+            self._run_subprocess(
+                ['todo.sh', 'pri', str(selected_id), chr(key)])
+            self.select_item(selected_id)
 
     def _scroll(self, delta):
         self.selected_line = max(
             0, min(len(self.items) - 1, self.selected_line + delta))
+        self._move_selection_into_view()
+
+    def _move_selection_into_view(self):
         if self.selected_line < self.scroll_offset:
             self.scroll_offset = self.selected_line
         elif self.selected_line > self._num_available_lines + self.scroll_offset:
