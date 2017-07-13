@@ -273,7 +273,7 @@ class TodoListViewer:
             for item in self.all_items:
                 if self.filter.lower() in item[1].lower():
                     self.items.append(item)
-        self._move_selection_into_view()
+        self.selected_line = 0
 
     def _handle_filter_input(self):
         key = self.screen.getch()
