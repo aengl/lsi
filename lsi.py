@@ -39,7 +39,6 @@ COLOR_STATUSBAR_FALLBACK = curses.COLOR_WHITE
 COLOR_STATUSBAR_ACTIVE_FALLBACK = curses.COLOR_YELLOW
 
 RE_PRIORITY = r'\(([A-Z])\)'
-RE_CONTEXT_OR_PROJECT = r'([@+][^\s]+)'
 KEY_ESC = 27
 KEY_BACKSPACE = 127
 
@@ -47,7 +46,7 @@ KEY_BACKSPACE = 127
 def get_priority(item):
     """Returns the priority of an item as a letter."""
     match = re.search(RE_PRIORITY, item[1])
-    return match and match.group(1) or None
+    return match.group(1) if match else None
 
 
 def get_priority_as_number(item, maximum=sys.maxsize):
@@ -70,6 +69,17 @@ def hex_to_rgb(col):
     """
     mul = 1000 / 255
     return tuple(round(int(col.lstrip('#')[i:i + 2], 16) * mul) for i in (0, 2, 4))
+
+
+def dim(rgb, mul=0.7):
+    """Returns a dimmer version of a color. If multiplier > 1, a lighter color
+    can be produced as well."""
+    return tuple(map(lambda x: min(1000, round(x * mul)), rgb))
+
+
+def is_context_or_project(word):
+    """Returns True if the word is a @context or +project, False otherwise."""
+    return word.startswith('@') or word.startswith('+')
 
 
 def get_num_rows():
@@ -112,6 +122,7 @@ class Dialog:
 
     def _render(self):
         self.dialog.erase()
+        self.dialog.attron(curses.color_pair(0))
         self.dialog.addstr(1, 2, '{:} {:}'.format(*self.item))
         self.dialog.box()
         self.dialog.refresh()
@@ -131,12 +142,12 @@ class TodoListViewer:
         (item_id, line), item_id being the line number in the todo.txt and line
         being the text of that line.
         """
-        return self.items and self.items[self.selected_line] or None
+        return self.items[self.selected_line] if self.items else None
 
     @property
     def selected_id(self):
         item = self.selected_item
-        return item and item[0] or None
+        return item[0] if item else None
 
     def __init__(self, root, simple_colors=False):
         self.root = root
@@ -151,6 +162,7 @@ class TodoListViewer:
         self.simple_colors = simple_colors
         self.num_colors = 0
         self.num_reserved_colors = 0
+        self.num_color_variants = 0
 
     def run(self, *_):
         """Shows the viewer and enters a rendering loop."""
@@ -191,7 +203,9 @@ class TodoListViewer:
         curses.curs_set(0)
         # curses.mousemask(1)
         curses.start_color()
-        if curses.can_change_color() and not self.simple_colors:
+        if not curses.can_change_color():
+            self.simple_colors = True
+        if not self.simple_colors:
             # Set reserved colors
             curses.init_color(1, *hex_to_rgb(COLOR_STATUSBAR))
             curses.init_pair(1, 0, 1)
@@ -199,22 +213,50 @@ class TodoListViewer:
             curses.init_pair(2, 0, 2)
             self.num_reserved_colors = 3
             # Set item colors
+            self.num_color_variants = 3
             for color_index, color in enumerate(COLORS):
-                color_index += self.num_reserved_colors
+                color_index = color_index * self.num_color_variants + self.num_reserved_colors
+                if color_index == 0:
+                    raise Exception(color_index)
                 curses.init_color(color_index, *hex_to_rgb(color))
                 curses.init_pair(color_index, color_index, 0)
+                curses.init_color(color_index + 1, *
+                                  dim(hex_to_rgb(color), mul=.6))
+                curses.init_pair(color_index + 1, color_index + 1, 0)
+                curses.init_color(color_index + 2, *
+                                  dim(hex_to_rgb(color), mul=1.5))
+                curses.init_pair(color_index + 2, color_index + 2, 0)
             self.num_colors = len(COLORS)
-
         else:
             # Set reserved colors
             curses.init_pair(1, 0, COLOR_STATUSBAR_FALLBACK)
             curses.init_pair(2, 0, COLOR_STATUSBAR_ACTIVE_FALLBACK)
             self.num_reserved_colors = 3
             # Set item colors
+            self.num_color_variants = 1
             for color_index, color in enumerate(COLORS_FALLBACK):
                 color_index += self.num_reserved_colors
                 curses.init_pair(color_index, color, 0)
             self.num_colors = len(COLORS_FALLBACK)
+
+    def _get_item_color_index(self, item):
+        priority = get_priority_as_number(item, maximum=self.num_colors - 1)
+        return priority * self.num_color_variants + self.num_reserved_colors
+
+    def _get_item_color_variants(self, item):
+        color_index = self._get_item_color_index(item)
+        pair = curses.color_pair
+        if self.simple_colors:
+            return (
+                pair(color_index),
+                pair(color_index) | curses.A_DIM,
+                pair(color_index) | curses.A_BOLD)
+        else:
+            return (
+                pair(color_index),
+                pair(color_index if self.simple_colors else color_index + 1),
+                pair(color_index if self.simple_colors else color_index + 2)
+            )
 
     def _read_todo_file(self):
         self.items.clear()
@@ -239,8 +281,8 @@ class TodoListViewer:
         if key in (ord('\n'), curses.KEY_UP, curses.KEY_DOWN, KEY_ESC):
             self.filtering = False
         elif key == KEY_BACKSPACE:
-            self.filter = self.filter and self.filter[:len(
-                self.filter) - 1] or ''
+            self.filter = self.filter[:len(
+                self.filter) - 1] if self.filter else ''
         else:
             self.filter += chr(key)
         self._apply_filter()
@@ -323,18 +365,14 @@ class TodoListViewer:
             col += num_chars
 
     def _print_item(self, index, item, selected=False):
-        color_index = get_priority_as_number(
-            item, maximum=self.num_colors - 1) + self.num_reserved_colors
-        attr = curses.color_pair(color_index) | (
-            selected and curses.A_STANDOUT or 0)
+        color, color_dim, color_light = self._get_item_color_variants(item)
+        standout = curses.A_STANDOUT if selected else 0
         linenum, line = item
         line = re.sub(RE_PRIORITY + ' ', '', line)
-        # line = re.sub(RE_CONTEXT_OR_PROJECT, r'\1', line)
-        # self.screen.addnstr(
-        #     index, 0, '{:02d} {:}'.format(linenum, line), get_num_columns(), attr)
         self._print(index, 0, [
-            ('{:02d} '.format(linenum), attr | curses.A_DIM),
-            (line, attr),
+            ('{:02d} '.format(linenum), color_dim | standout),
+            *map(lambda word: (word + ' ',
+                               (color_light if is_context_or_project(word) else color) | standout), line.split())
         ])
 
     def _render_statusbar(self):
@@ -343,7 +381,7 @@ class TodoListViewer:
         total = len(self.all_items)
         text = 'FILTERING: {:}'.format(
             self.filter) if self.filter or self.filtering else ''
-        attr = curses.color_pair(self.filtering and 2 or 1)
+        attr = curses.color_pair(2 if self.filtering else 1)
         text = 'Showing {:}-{:}/{:} {:}'.format(top, bottom, total, text)
         self.screen.addnstr(get_num_rows(), 0, text.ljust(get_num_columns() - 1),
                             get_num_columns(), attr)
