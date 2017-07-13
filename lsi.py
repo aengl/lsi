@@ -20,7 +20,7 @@ COLORS = [
     '#837CC5',
     '#CCCCCC'
 ]
-COLOR_STATUSBAR = '#AAAAAA'
+COLOR_STATUSBAR = '#CCCCCC'
 COLOR_STATUSBAR_ACTIVE = '#F5D761'
 
 """For terminals that don't support definining custom colors (which is most of
@@ -387,7 +387,8 @@ class TodoListViewer:
         total = len(self.all_items)
         text = 'FILTERING: {:}'.format(
             self.filter) if self.filter or self.filtering else ''
-        attr = curses.color_pair(2 if self.filtering else 1)
+        attr = curses.color_pair(
+            2 if self.filtering else 1) | curses.A_STANDOUT
         text = 'Showing {:}-{:}/{:} {:}'.format(top, bottom, total, text)
         self.screen.addnstr(get_num_rows(), 0, text.ljust(get_num_columns() - 1),
                             get_num_columns(), attr)
