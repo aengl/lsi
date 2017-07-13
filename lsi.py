@@ -38,6 +38,7 @@ COLOR_STATUSBAR_FALLBACK = curses.COLOR_WHITE
 COLOR_STATUSBAR_ACTIVE_FALLBACK = curses.COLOR_YELLOW
 
 RE_PRIORITY = r'\(([A-Z])\)'
+RE_DATE = r'\d{4}-\d{2}-\d{2}'
 KEY_ESC = 27
 KEY_BACKSPACE = 127
 
@@ -371,7 +372,8 @@ class TodoListViewer:
         color, color_dim, color_light = self._get_item_color_variants(item)
         standout = curses.A_STANDOUT if selected else 0
         linenum, line = item
-        line = re.sub(RE_PRIORITY + ' ', '', line)
+        line = re.sub(RE_PRIORITY + ' ', '', line)  # Hide priorities
+        line = re.sub(RE_DATE + ' ', '', line)  # Hide dates
         self._print(index, 0, [
             ('{:02d} '.format(linenum), color_dim | standout),
             *map(lambda word: (word + ' ',
