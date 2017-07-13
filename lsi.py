@@ -190,7 +190,7 @@ class TodoListViewer:
 
     def _run_subprocess(self, command):
         curses.endwin()
-        subprocess.run(command)
+        subprocess.run([str(x) for x in command])
         self._init()
 
     def _init(self):
@@ -264,6 +264,7 @@ class TodoListViewer:
         items = [(index + 1, line) for index, line in enumerate(lines)]
         self.all_items = sorted(items, key=get_priority_as_number)
         self.items = self.all_items
+        self._apply_filter()
 
     def _apply_filter(self):
         if not self.filter:
@@ -320,10 +321,10 @@ class TodoListViewer:
             self.filtering = True
         # d: done
         elif self.has_selection and key == ord('d'):
-            self._run_subprocess(['todo.sh', 'do', str(self.selected_id)])
+            self._run_subprocess(['todo.sh', 'do', self.selected_id])
         # n: nav
         elif self.has_selection and key == ord('n'):
-            self._run_subprocess(['todo.sh', 'nav', str(self.selected_id)])
+            self._run_subprocess(['todo.sh', 'nav', self.selected_id])
         # SPACE/RETURN: Enter item dialog
         elif self.has_selection and key in (ord(' '), ord('\n')):
             Dialog(self.selected_item).run()
@@ -331,20 +332,21 @@ class TodoListViewer:
         elif self.has_selection and key in (ord('='), ord('-')):
             delta = 1 if key == ord('=') else -1
             new_priority = get_bumped_priority(self.selected_item, delta)
-            selected = self.selected_id
-            self._run_subprocess(
-                ['todo.sh', 'pri', str(selected), new_priority])
-            self.select_item(selected)
+            self._set_item_priority(self.selected_item, new_priority)
         # A-Z: Set priority
         elif self.has_selection and key >= ord('A') and key <= ord('Z'):
-            selected = self.selected_id
-            self._run_subprocess(
-                ['todo.sh', 'pri', str(selected), chr(key)])
-            self.select_item(selected)
+            self._set_item_priority(self.selected_item, chr(key))
+        # 0: Remove priority
+        elif self.has_selection and key == ord('0'):
+            self._run_subprocess(['todo.sh', 'depri', self.selected_id])
         # Mouse events
         # elif key == curses.KEY_MOUSE:
         #     _, _, row, _, _ = curses.getmouse()
         #     self.selected_line = row
+
+    def _set_item_priority(self, item, priority):
+        self._run_subprocess(['todo.sh', 'pri', item[0], priority])
+        self.select_item(item[0])
 
     def _move_selection_into_view(self):
         num_rows = get_num_rows() - 1  # Leave one row for the status bar
