@@ -20,7 +20,7 @@ COLORS = [
     '#837CC5',
     '#CCCCCC'
 ]
-COLOR_STATUSBAR = '#888888'
+COLOR_STATUSBAR = '#AAAAAA'
 COLOR_STATUSBAR_ACTIVE = '#F5D761'
 
 """For terminals that don't support definining custom colors (which is most of
@@ -71,10 +71,15 @@ def hex_to_rgb(col):
     return tuple(round(int(col.lstrip('#')[i:i + 2], 16) * mul) for i in (0, 2, 4))
 
 
-def dim(rgb, mul=0.7):
+def dim(rgb, mul=0.6):
     """Returns a dimmer version of a color. If multiplier > 1, a lighter color
     can be produced as well."""
     return tuple(map(lambda x: min(1000, round(x * mul)), rgb))
+
+
+def lighten(rgb, mul=1.5):
+    """An alias for dim() with a positive multiplier."""
+    return dim(rgb, mul)
 
 
 def is_context_or_project(word):
@@ -207,25 +212,16 @@ class TodoListViewer:
             self.simple_colors = True
         if not self.simple_colors:
             # Set reserved colors
-            curses.init_color(1, *hex_to_rgb(COLOR_STATUSBAR))
-            curses.init_pair(1, 0, 1)
-            curses.init_color(2, *hex_to_rgb(COLOR_STATUSBAR_ACTIVE))
-            curses.init_pair(2, 0, 2)
+            self._define_color(1, hex_to_rgb(COLOR_STATUSBAR))
+            self._define_color(2, hex_to_rgb(COLOR_STATUSBAR_ACTIVE))
             self.num_reserved_colors = 3
             # Set item colors
             self.num_color_variants = 3
             for color_index, color in enumerate(COLORS):
                 color_index = color_index * self.num_color_variants + self.num_reserved_colors
-                if color_index == 0:
-                    raise Exception(color_index)
-                curses.init_color(color_index, *hex_to_rgb(color))
-                curses.init_pair(color_index, color_index, 0)
-                curses.init_color(color_index + 1, *
-                                  dim(hex_to_rgb(color), mul=.6))
-                curses.init_pair(color_index + 1, color_index + 1, 0)
-                curses.init_color(color_index + 2, *
-                                  dim(hex_to_rgb(color), mul=1.5))
-                curses.init_pair(color_index + 2, color_index + 2, 0)
+                self._define_color(color_index, hex_to_rgb(color))
+                self._define_color(color_index + 1, dim(hex_to_rgb(color)))
+                self._define_color(color_index + 2, lighten(hex_to_rgb(color)))
             self.num_colors = len(COLORS)
         else:
             # Set reserved colors
@@ -238,6 +234,11 @@ class TodoListViewer:
                 color_index += self.num_reserved_colors
                 curses.init_pair(color_index, color, 0)
             self.num_colors = len(COLORS_FALLBACK)
+
+    def _define_color(self, color_index, rgb):
+        assert color_index > 0  # Don't overwrite background color
+        curses.init_color(color_index, *rgb)
+        curses.init_pair(color_index, color_index, 0)
 
     def _get_item_color_index(self, item):
         priority = get_priority_as_number(item, maximum=self.num_colors - 1)
