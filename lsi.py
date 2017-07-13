@@ -6,8 +6,9 @@ import os
 import re
 import sys
 import argparse
-import curses
 import subprocess
+import curses
+from curses.textpad import Textbox
 
 """Maps a priority to a color. First entry is priority A, second B, and so on.
 If there are more priorities than colors, the last entry will be used for the
@@ -20,20 +21,27 @@ COLORS = [
     '#837CC5',
     '#CCCCCC'
 ]
+COLOR_STATUSBAR = '#888888'
+COLOR_STATUSBAR_ACTIVE = '#F5D761'
 
 """For terminals that don't support definining custom colors (which is most of
 them), these pre-defined colors will be used instead."""
 COLORS_FALLBACK = [
-    3,  # yellow
-    2,  # green
-    6,  # cyan
-    4,  # blue
-    7,  # white
+    curses.COLOR_RED,
+    curses.COLOR_YELLOW,
+    curses.COLOR_GREEN,
+    curses.COLOR_CYAN,
+    curses.COLOR_BLUE,
+    curses.COLOR_MAGENTA,
+    curses.COLOR_WHITE
 ]
+COLOR_STATUSBAR_FALLBACK = curses.COLOR_WHITE
+COLOR_STATUSBAR_ACTIVE_FALLBACK = curses.COLOR_YELLOW
 
 RE_PRIORITY = r'\(([A-Z])\)'
 RE_CONTEXT_OR_PROJECT = r'([@+][^\s]+)'
 KEY_ESC = 27
+KEY_BACKSPACE = 127
 
 
 def get_priority(item):
@@ -64,10 +72,10 @@ def hex_to_rgb(col):
     return tuple(round(int(col.lstrip('#')[i:i + 2], 16) * mul) for i in (0, 2, 4))
 
 
-def get_num_lines():
+def get_num_rows():
     """Returns the number of lines currently available in the terminal."""
     # pylint: disable=E1101
-    return curses.LINES - 2
+    return curses.LINES - 1
 
 
 def get_num_columns():
@@ -81,38 +89,30 @@ class Dialog:
 
     def __init__(self, item):
         self.dialog = None
-        self.close = False
+        self.alive = True
         self.item = item
-        self.actions = []
 
     def run(self):
         """Shows the dialog and enters a rendering loop."""
         self._init()
-        while not self.close:
+        while self.alive:
             self._render()
             self._handle_input()
 
+    def close(self):
+        """Closes the dialog."""
+        self.alive = False
+
     def _init(self):
-        self.dialog = curses.newwin(10, get_num_columns(), 0, 0)
-        self.actions = ['do', 'nav']
+        self.dialog = curses.newwin(5, get_num_columns(), 0, 0)
 
     def _handle_input(self):
-        key = self.dialog.getch()
-        if key in (ord('k'), KEY_UP):
-            self._navigate(-1)
-        elif key in (ord('j'), KEY_DOWN):
-            self._navigate(1)
-        elif key in (ord('q'), KEY_ESC):
-            self.close = True
-
-    def _navigate(self, delta):
-        pass
+        self.dialog.getch()
+        self.close()
 
     def _render(self):
         self.dialog.erase()
         self.dialog.addstr(1, 2, '{:} {:}'.format(*self.item))
-        for action_index, action in enumerate(self.actions):
-            self.dialog.addstr(action_index + 3, 2, action)
         self.dialog.box()
         self.dialog.refresh()
 
@@ -121,32 +121,54 @@ class TodoListViewer:
     """A viewer that lets us browse and filter todo items."""
 
     @property
+    def has_selection(self):
+        """Returns True if a todo item is selected, False otherwise."""
+        return self.items and self.selected_line >= 0
+
+    @property
     def selected_item(self):
         """Returns the currently selected item, which is a tuple in the form of:
         (item_id, line), item_id being the line number in the todo.txt and line
         being the text of that line.
         """
-        return self.items[self.selected_line]
+        return self.items and self.items[self.selected_line] or None
 
-    def __init__(self, root):
+    @property
+    def selected_id(self):
+        item = self.selected_item
+        return item and item[0] or None
+
+    def __init__(self, root, simple_colors=False):
         self.root = root
         self.screen = None
         self.scroll_offset = 0
         self.selected_line = 0
-        self.close = False
+        self.alive = True
         self.items = []
+        self.all_items = []
+        self.filter = ''
+        self.filtering = False
+        self.simple_colors = simple_colors
         self.num_colors = 0
+        self.num_reserved_colors = 0
 
     def run(self, *_):
         """Shows the viewer and enters a rendering loop."""
         try:
             self._init()
-            while not self.close:
+            while self.alive:
                 self._move_selection_into_view()
                 self._render()
-                self._handle_input()
+                if self.filtering:
+                    self._handle_filter_input()
+                else:
+                    self._handle_input()
         except KeyboardInterrupt:
             pass
+
+    def close(self):
+        """Closes the viewer."""
+        self.alive = False
 
     def select_item(self, item_id):
         """Selects the item with a specific id."""
@@ -169,14 +191,29 @@ class TodoListViewer:
         curses.curs_set(0)
         # curses.mousemask(1)
         curses.start_color()
-        if curses.can_change_color():
+        if curses.can_change_color() and not self.simple_colors:
+            # Set reserved colors
+            curses.init_color(1, *hex_to_rgb(COLOR_STATUSBAR))
+            curses.init_pair(1, 0, 1)
+            curses.init_color(2, *hex_to_rgb(COLOR_STATUSBAR_ACTIVE))
+            curses.init_pair(2, 0, 2)
+            self.num_reserved_colors = 3
+            # Set item colors
             for color_index, color in enumerate(COLORS):
-                curses.init_color(color_index + 1, *hex_to_rgb(color))
-                curses.init_pair(color_index + 1, color_index + 1, 0)
+                color_index += self.num_reserved_colors
+                curses.init_color(color_index, *hex_to_rgb(color))
+                curses.init_pair(color_index, color_index, 0)
             self.num_colors = len(COLORS)
+
         else:
+            # Set reserved colors
+            curses.init_pair(1, 0, COLOR_STATUSBAR_FALLBACK)
+            curses.init_pair(2, 0, COLOR_STATUSBAR_ACTIVE_FALLBACK)
+            self.num_reserved_colors = 3
+            # Set item colors
             for color_index, color in enumerate(COLORS_FALLBACK):
-                curses.init_pair(color_index + 1, color, 0)
+                color_index += self.num_reserved_colors
+                curses.init_pair(color_index, color, 0)
             self.num_colors = len(COLORS_FALLBACK)
 
     def _read_todo_file(self):
@@ -184,11 +221,32 @@ class TodoListViewer:
         with open(os.path.join(self.root, 'todo.txt'), 'r') as todofile:
             lines = todofile.readlines()
         items = [(index + 1, line) for index, line in enumerate(lines)]
-        self.items = sorted(items, key=get_priority_as_number)
+        self.all_items = sorted(items, key=get_priority_as_number)
+        self.items = self.all_items
+
+    def _apply_filter(self):
+        if not self.filter:
+            self.items = self.all_items
+        else:
+            self.items = []
+            for item in self.all_items:
+                if self.filter.lower() in item[1].lower():
+                    self.items.append(item)
+        self._move_selection_into_view()
+
+    def _handle_filter_input(self):
+        key = self.screen.getch()
+        if key in (ord('\n'), curses.KEY_UP, curses.KEY_DOWN, KEY_ESC):
+            self.filtering = False
+        elif key == KEY_BACKSPACE:
+            self.filter = self.filter and self.filter[:len(
+                self.filter) - 1] or ''
+        else:
+            self.filter += chr(key)
+        self._apply_filter()
 
     def _handle_input(self):
         key = self.screen.getch()
-        selected_id = self.selected_item[0]
         # j/k: up/down
         if key in (ord('k'), curses.KEY_UP):
             self.selected_line -= 1
@@ -199,46 +257,62 @@ class TodoListViewer:
             self.selected_line = 0
         elif key == curses.KEY_END:
             self.selected_line = len(self.items) - 1
-        # q: quit
+        # q/ESC: cancel filter or quit
         elif key in (ord('q'), KEY_ESC):
-            self.close = True
+            if self.filter:
+                selected = self.selected_id
+                self.filter = ''
+                self._apply_filter()
+                self.select_item(selected)
+            else:
+                self.close()
         # r: refresh
         elif key == ord('r'):
             self._read_todo_file()
             curses.flash()
+        # e: edit
+        elif key == ord('e'):
+            self._run_subprocess(['todo.sh', 'edit'])
+        # /: filter
+        elif key == ord('/'):
+            self.filter = ''
+            self.filtering = True
         # d: done
-        elif key == ord('d'):
-            self._run_subprocess(['todo.sh', 'do', str(selected_id)])
+        elif self.has_selection and key == ord('d'):
+            self._run_subprocess(['todo.sh', 'do', str(self.selected_id)])
         # n: nav
-        elif key == ord('n'):
-            self._run_subprocess(['todo.sh', 'nav', str(selected_id)])
+        elif self.has_selection and key == ord('n'):
+            self._run_subprocess(['todo.sh', 'nav', str(self.selected_id)])
         # SPACE/RETURN: Enter item dialog
-        elif key in (ord(' '), ord('\n')):
+        elif self.has_selection and key in (ord(' '), ord('\n')):
             Dialog(self.selected_item).run()
         # -/=: Bump priority
-        elif key in (ord('='), ord('-')):
-            delta = (key == ord('=')) and 1 or -1
+        elif self.has_selection and key in (ord('='), ord('-')):
+            delta = 1 if key == ord('=') else -1
             new_priority = get_bumped_priority(self.selected_item, delta)
+            selected = self.selected_id
             self._run_subprocess(
-                ['todo.sh', 'pri', str(selected_id), new_priority])
-            self.select_item(selected_id)
+                ['todo.sh', 'pri', str(selected), new_priority])
+            self.select_item(selected)
         # A-Z: Set priority
-        elif key >= ord('A') and key <= ord('Z'):
+        elif self.has_selection and key >= ord('A') and key <= ord('Z'):
+            selected = self.selected_id
             self._run_subprocess(
-                ['todo.sh', 'pri', str(selected_id), chr(key)])
-            self.select_item(selected_id)
+                ['todo.sh', 'pri', str(selected), chr(key)])
+            self.select_item(selected)
         # Mouse events
         # elif key == curses.KEY_MOUSE:
         #     _, _, row, _, _ = curses.getmouse()
         #     self.selected_line = row
 
     def _move_selection_into_view(self):
+        num_rows = get_num_rows() - 1  # Leave one row for the status bar
         self.selected_line = max(
             0, min(len(self.items) - 1, self.selected_line))
         if self.selected_line < self.scroll_offset:
             self.scroll_offset = self.selected_line
-        elif self.selected_line > get_num_lines() + self.scroll_offset:
-            self.scroll_offset = self.selected_line - get_num_lines()
+        elif self.selected_line > num_rows + self.scroll_offset:
+            self.scroll_offset = self.selected_line - num_rows
 
     def _print(self, row, col, chunks):
         for text, attr in chunks:
@@ -250,7 +324,7 @@ class TodoListViewer:
 
     def _print_item(self, index, item, selected=False):
         color_index = get_priority_as_number(
-            item, maximum=self.num_colors - 1) + 1
+            item, maximum=self.num_colors - 1) + self.num_reserved_colors
         attr = curses.color_pair(color_index) | (
             selected and curses.A_STANDOUT or 0)
         linenum, line = item
@@ -263,14 +337,27 @@ class TodoListViewer:
             (line, attr),
         ])
 
+    def _render_statusbar(self):
+        top = self.scroll_offset + 1
+        bottom = min(len(self.items), self.scroll_offset + get_num_rows())
+        total = len(self.all_items)
+        text = 'FILTERING: {:}'.format(
+            self.filter) if self.filter or self.filtering else ''
+        attr = curses.color_pair(self.filtering and 2 or 1)
+        text = 'Showing {:}-{:}/{:} {:}'.format(top, bottom, total, text)
+        self.screen.addnstr(get_num_rows(), 0, text.ljust(get_num_columns() - 1),
+                            get_num_columns(), attr)
+
     def _render(self):
         self.screen.erase()
         top = self.scroll_offset
-        bottom = self.scroll_offset + get_num_lines() + 1
+        bottom = self.scroll_offset + get_num_rows()
         for index, item in enumerate(self.items[top:bottom]):
             self._print_item(index, item)
-        self._print_item(self.selected_line - self.scroll_offset,
-                         self.items[self.selected_line], True)
+        if self.items:
+            self._print_item(self.selected_line - self.scroll_offset,
+                             self.items[self.selected_line], True)
+        self._render_statusbar()
         self.screen.refresh()
 
 
@@ -278,8 +365,13 @@ def main():
     """Main entry point. Parses command line arguments and runs the viewer."""
     parser = argparse.ArgumentParser()
     parser.add_argument("dir")
+    parser.add_argument('--simple', dest='simple_colors', action='store_true',
+                        help='use simple colors for terminals that do not ' +
+                        'support defining colors in RGB')
+    parser.set_defaults(simple=False)
     args = parser.parse_args()
-    curses.wrapper(TodoListViewer(args.dir).run)
+    curses.wrapper(TodoListViewer(
+        args.dir, simple_colors=args.simple_colors).run)
 
 
 if __name__ == '__main__':
