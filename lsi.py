@@ -9,6 +9,10 @@ import argparse
 import curses
 import subprocess
 
+"""Maps a priority to a color. First entry is priority A, second B, and so on.
+If there are more priorities than colors, the last entry will be used for the
+remainder.
+"""
 COLORS = [
     '#F5D761',
     '#A4F54C',
@@ -16,19 +20,30 @@ COLORS = [
     '#837CC5',
     '#CCCCCC'
 ]
+
+"""For terminals that don't support definining custom colors (which is most of
+them), these pre-defined colors will be used instead."""
+COLORS_FALLBACK = [
+    3,  # yellow
+    2,  # green
+    6,  # cyan
+    4,  # blue
+    7,  # white
+]
+
 RE_PRIORITY = r'\(([A-Z])\)'
 RE_CONTEXT_OR_PROJECT = r'([@+][^\s]+)'
-KEY_UP = curses.KEY_UP
-KEY_DOWN = curses.KEY_DOWN
 KEY_ESC = 27
 
 
 def get_priority(item):
+    """Returns the priority of an item as a letter."""
     match = re.search(RE_PRIORITY, item[1])
     return match and match.group(1) or None
 
 
 def get_priority_as_number(item, maximum=sys.maxsize):
+    """Returns the priority of an item as a number (A is 0, B is 1, ...)."""
     priority = get_priority(item)
     if priority is None:
         return maximum
@@ -36,21 +51,27 @@ def get_priority_as_number(item, maximum=sys.maxsize):
 
 
 def get_bumped_priority(item, delta):
+    """Offsets and returns an item's priority by delta (positive -> higher)."""
     priority = get_priority(item)
     return chr(max(ord('A'), min(ord('Z'), ord(priority) - delta)))
 
 
-def hex_to_rgb(s):
+def hex_to_rgb(col):
+    """Extracts the RGB values as integers (from 0 to 1000) from a hex color
+    string (#rrggbb).
+    """
     mul = 1000 / 255
-    return tuple(round(int(s.lstrip('#')[i:i + 2], 16) * mul) for i in (0, 2, 4))
+    return tuple(round(int(col.lstrip('#')[i:i + 2], 16) * mul) for i in (0, 2, 4))
 
 
 def get_num_lines():
+    """Returns the number of lines currently available in the terminal."""
     # pylint: disable=E1101
     return curses.LINES - 2
 
 
 def get_num_columns():
+    """Returns the columns of lines currently available in the terminal."""
     # pylint: disable=E1101
     return curses.COLS
 
@@ -114,12 +135,14 @@ class TodoListViewer:
         self.selected_line = 0
         self.close = False
         self.items = []
+        self.num_colors = 0
 
     def run(self, *_):
         """Shows the viewer and enters a rendering loop."""
         try:
             self._init()
             while not self.close:
+                self._move_selection_into_view()
                 self._render()
                 self._handle_input()
         except KeyboardInterrupt:
@@ -130,7 +153,6 @@ class TodoListViewer:
         for item_index, item in enumerate(self.items):
             if item[0] == item_id:
                 self.selected_line = item_index
-                self._move_selection_into_view()
                 break
 
     def _run_subprocess(self, command):
@@ -144,13 +166,18 @@ class TodoListViewer:
         self.screen.keypad(1)
         self.screen.border(0)
         curses.noecho()
-        # curses.cbreak()
         curses.curs_set(0)
+        # curses.mousemask(1)
         curses.start_color()
-        for color_index, color in enumerate(COLORS):
-            red, green, blue = hex_to_rgb(color)
-            curses.init_color(color_index + 1, red, green, blue)
-            curses.init_pair(color_index + 1, color_index + 1, 0)
+        if curses.can_change_color():
+            for color_index, color in enumerate(COLORS):
+                curses.init_color(color_index + 1, *hex_to_rgb(color))
+                curses.init_pair(color_index + 1, color_index + 1, 0)
+            self.num_colors = len(COLORS)
+        else:
+            for color_index, color in enumerate(COLORS_FALLBACK):
+                curses.init_pair(color_index + 1, color, 0)
+            self.num_colors = len(COLORS_FALLBACK)
 
     def _read_todo_file(self):
         self.items.clear()
@@ -163,16 +190,22 @@ class TodoListViewer:
         key = self.screen.getch()
         selected_id = self.selected_item[0]
         # j/k: up/down
-        if key in (ord('k'), KEY_UP):
-            self._scroll(-1)
-        elif key in (ord('j'), KEY_DOWN):
-            self._scroll(1)
+        if key in (ord('k'), curses.KEY_UP):
+            self.selected_line -= 1
+        elif key in (ord('j'), curses.KEY_DOWN):
+            self.selected_line += 1
+        # HOME/END: scroll to top/bottom
+        elif key == curses.KEY_HOME:
+            self.selected_line = 0
+        elif key == curses.KEY_END:
+            self.selected_line = len(self.items) - 1
         # q: quit
         elif key in (ord('q'), KEY_ESC):
             self.close = True
         # r: refresh
         elif key == ord('r'):
             self._read_todo_file()
+            curses.flash()
         # d: done
         elif key == ord('d'):
             self._run_subprocess(['todo.sh', 'do', str(selected_id)])
@@ -194,27 +227,41 @@ class TodoListViewer:
             self._run_subprocess(
                 ['todo.sh', 'pri', str(selected_id), chr(key)])
             self.select_item(selected_id)
-
-    def _scroll(self, delta):
-        self.selected_line = max(
-            0, min(len(self.items) - 1, self.selected_line + delta))
-        self._move_selection_into_view()
+        # Mouse events
+        # elif key == curses.KEY_MOUSE:
+        #     _, _, row, _, _ = curses.getmouse()
+        #     self.selected_line = row
 
     def _move_selection_into_view(self):
+        self.selected_line = max(
+            0, min(len(self.items) - 1, self.selected_line))
         if self.selected_line < self.scroll_offset:
             self.scroll_offset = self.selected_line
         elif self.selected_line > get_num_lines() + self.scroll_offset:
             self.scroll_offset = self.selected_line - get_num_lines()
 
+    def _print(self, row, col, chunks):
+        for text, attr in chunks:
+            num_chars = len(text)
+            if col + num_chars > get_num_columns():
+                num_chars = get_num_columns() - col
+            self.screen.addnstr(row, col, text, num_chars, attr)
+            col += num_chars
+
     def _print_item(self, index, item, selected=False):
-        color_index = get_priority_as_number(item, maximum=len(COLORS) - 1) + 1
+        color_index = get_priority_as_number(
+            item, maximum=self.num_colors - 1) + 1
         attr = curses.color_pair(color_index) | (
-            selected and curses.A_REVERSE or 0)
+            selected and curses.A_STANDOUT or 0)
         linenum, line = item
         line = re.sub(RE_PRIORITY + ' ', '', line)
         # line = re.sub(RE_CONTEXT_OR_PROJECT, r'\1', line)
-        self.screen.addnstr(
-            index, 0, '{:02d} {:}'.format(linenum, line), 80, attr)
+        # self.screen.addnstr(
+        #     index, 0, '{:02d} {:}'.format(linenum, line), get_num_columns(), attr)
+        self._print(index, 0, [
+            ('{:02d} '.format(linenum), attr | curses.A_DIM),
+            (line, attr),
+        ])
 
     def _render(self):
         self.screen.erase()
@@ -228,6 +275,7 @@ class TodoListViewer:
 
 
 def main():
+    """Main entry point. Parses command line arguments and runs the viewer."""
     parser = argparse.ArgumentParser()
     parser.add_argument("dir")
     args = parser.parse_args()
