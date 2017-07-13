@@ -8,7 +8,6 @@ import sys
 import argparse
 import subprocess
 import curses
-from curses.textpad import Textbox
 
 """Maps a priority to a color. First entry is priority A, second B, and so on.
 If there are more priorities than colors, the last entry will be used for the
@@ -361,6 +360,8 @@ class TodoListViewer:
             num_chars = len(text)
             if col + num_chars > get_num_columns():
                 num_chars = get_num_columns() - col
+                if num_chars <= 0:
+                    break  # No space left in the row
             self.screen.addnstr(row, col, text, num_chars, attr)
             col += num_chars
 
