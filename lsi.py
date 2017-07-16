@@ -82,11 +82,6 @@ def lighten(rgb, mul=1.5):
     return dim(rgb, mul)
 
 
-def is_special(word):
-    """Returns True if the word is a @context or +project, False otherwise."""
-    return word.startswith('@') or word.startswith('+')
-
-
 def get_num_rows():
     """Returns the number of lines currently available in the terminal."""
     # pylint: disable=E1101
@@ -377,8 +372,16 @@ class TodoListViewer:
             self.screen.addnstr(row, col, text, num_chars, attr)
             col += num_chars
 
-    def _print_item(self, index, item, selected=False):
+    def _get_color_for_word(self, item, word):
         color, color_dim, color_light = self._get_item_color_variants(item)
+        if word.startswith('@') or word.startswith('+'):
+            return color_light
+        if word.startswith('http://'):
+            return color_dim
+        return color
+
+    def _print_item(self, index, item, selected=False):
+        _, color_dim, _ = self._get_item_color_variants(item)
         standout = curses.A_STANDOUT if selected else 0
         linenum, line = item
         line = re.sub(RE_PRIORITY + ' ', '', line)  # Hide priorities
@@ -386,7 +389,7 @@ class TodoListViewer:
         self._print(index, 0, [
             ('{:02d} '.format(linenum), color_dim | standout),
             *map(lambda word: (word + ' ',
-                               (color_light if is_special(word) else color) | standout), line.split())
+                               self._get_color_for_word(item, word) | standout), line.split())
         ])
 
     def _render_statusbar(self):
