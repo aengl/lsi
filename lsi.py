@@ -82,7 +82,7 @@ def lighten(rgb, mul=1.5):
     return dim(rgb, mul)
 
 
-def is_context_or_project(word):
+def is_special(word):
     """Returns True if the word is a @context or +project, False otherwise."""
     return word.startswith('@') or word.startswith('+')
 
@@ -151,6 +151,7 @@ class TodoListViewer:
 
     @property
     def selected_id(self):
+        """Returns the line number of the currently selected item."""
         item = self.selected_item
         return item[0] if item else None
 
@@ -189,8 +190,10 @@ class TodoListViewer:
 
     def refresh(self):
         """Reads the todo items from filesystem and refreshes the view."""
+        selected = self.selected_id
         self._read_todo_file()
         curses.flash()
+        self.select_item(selected)
         self._render()
 
     def select_item(self, item_id):
@@ -383,7 +386,7 @@ class TodoListViewer:
         self._print(index, 0, [
             ('{:02d} '.format(linenum), color_dim | standout),
             *map(lambda word: (word + ' ',
-                               (color_light if is_context_or_project(word) else color) | standout), line.split())
+                               (color_light if is_special(word) else color) | standout), line.split())
         ])
 
     def _render_statusbar(self):
