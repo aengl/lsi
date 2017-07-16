@@ -187,6 +187,12 @@ class TodoListViewer:
         """Closes the viewer."""
         self.alive = False
 
+    def refresh(self):
+        """Reads the todo items from filesystem and refreshes the view."""
+        self._read_todo_file()
+        curses.flash()
+        self._render()
+
     def select_item(self, item_id):
         """Selects the item with a specific id."""
         for item_index, item in enumerate(self.items):
@@ -312,8 +318,7 @@ class TodoListViewer:
                 self.close()
         # r: refresh
         elif key == ord('r'):
-            self._read_todo_file()
-            curses.flash()
+            self.refresh()
         # e: edit
         elif key == ord('e'):
             self._run_subprocess(['todo.sh', 'edit'])
@@ -406,6 +411,24 @@ class TodoListViewer:
         self.screen.refresh()
 
 
+def watch_fs(path, callback):
+    """Tries to create a filesystem watcher. Will fail silently if dependencies
+    are missing. Calls the callback if a file in the path is modified."""
+    try:
+        from watchdog.observers import Observer
+        from watchdog.events import FileSystemEventHandler
+
+        class _Watch(FileSystemEventHandler):
+            def on_modified(self, _):
+                callback()
+
+        observer = Observer()
+        observer.schedule(_Watch(), path)
+        observer.start()
+    except ImportError:
+        pass
+
+
 def main():
     """Main entry point. Parses command line arguments and runs the viewer."""
     parser = argparse.ArgumentParser()
@@ -415,8 +438,9 @@ def main():
                         'support defining colors in RGB')
     parser.set_defaults(simple=False)
     args = parser.parse_args()
-    curses.wrapper(TodoListViewer(
-        args.dir, simple_colors=args.simple_colors).run)
+    viewer = TodoListViewer(args.dir, simple_colors=args.simple_colors)
+    watch_fs(args.dir, viewer.refresh)
+    curses.wrapper(viewer.run)
 
 
 if __name__ == '__main__':
