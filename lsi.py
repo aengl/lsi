@@ -376,7 +376,7 @@ class TodoListViewer:
         color, color_dim, color_light = self._get_item_color_variants(item)
         if word.startswith('@') or word.startswith('+'):
             return color_light
-        if word.startswith('http://'):
+        if word.startswith('http://') or word.startswith('https://'):
             return color_dim
         return color
 
