@@ -151,7 +151,8 @@ class TodoListViewer:
         item = self.selected_item
         return item[0] if item else None
 
-    def __init__(self, root, simple_colors=False):
+    # pylint: disable=W0622
+    def __init__(self, root, simple_colors=False, filter=None):
         self.root = root
         self.screen = None
         self.scroll_offset = 0
@@ -159,7 +160,7 @@ class TodoListViewer:
         self.alive = True
         self.items = []
         self.all_items = []
-        self.filter = ''
+        self.filter = filter or ''
         self.filtering = False
         self.simple_colors = simple_colors
         self.num_colors = 0
@@ -442,13 +443,15 @@ def watch_fs(path, callback):
 def main():
     """Main entry point. Parses command line arguments and runs the viewer."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("dir")
+    parser.add_argument('dir')
+    parser.add_argument('filter', nargs='?', default=None)
     parser.add_argument('--simple', dest='simple_colors', action='store_true',
                         help='use simple colors for terminals that do not ' +
                         'support defining colors in RGB')
     parser.set_defaults(simple=False)
     args = parser.parse_args()
-    viewer = TodoListViewer(args.dir, simple_colors=args.simple_colors)
+    viewer = TodoListViewer(
+        args.dir, simple_colors=args.simple_colors, filter=args.filter)
     watch_fs(args.dir, viewer.refresh)
     curses.wrapper(viewer.run)
 

@@ -39,4 +39,5 @@ Run the interactive viewer with:
 
 ## Command line arguments
 
+- You can pass an optional positional argument that will apply an initial filter.
 - `--simple`: Enters simple mode for terminals that don't support defining custom colors. `Terminal` on macOS will need this, but `iTerm` will work fine without it.

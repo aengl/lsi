@@ -8,6 +8,10 @@ shift
   echo "  An interactive ls:"
   echo "    lsi"
   echo "      starts an interactive shell for managing todos"
+  echo "    lsi @shopping"
+  echo "      starts the shell with an initial filter for @shopping"
+  echo "    lsi --simple"
+  echo "      supports shells that can't define custom colors"
   echo ""
   exit
 }
