@@ -85,25 +85,14 @@ def lighten(rgb, mul=1.5):
     return dim(rgb, mul)
 
 
-def get_num_rows():
-    """Returns the number of lines currently available in the terminal."""
-    # pylint: disable=E1101
-    return curses.LINES - 1
-
-
-def get_num_columns():
-    """Returns the columns of lines currently available in the terminal."""
-    # pylint: disable=E1101
-    return curses.COLS
-
-
 class Dialog:
     """A popup dialog that lets us interact with todo items."""
 
-    def __init__(self, item):
+    def __init__(self, screen, item):
+        self.item = item
+        self.parent = screen
         self.dialog = None
         self._alive = True
-        self.item = item
 
     def run(self):
         """Shows the dialog and enters a rendering loop."""
@@ -117,7 +106,8 @@ class Dialog:
         self._alive = False
 
     def _init(self):
-        self.dialog = curses.newwin(5, get_num_columns(), 0, 0)
+        _, num_cols = self.parent.getmaxyx()
+        self.dialog = curses.newwin(5, num_cols, 0, 0)
 
     def _handle_input(self):
         self.dialog.getch()
@@ -157,6 +147,16 @@ class TodoListViewer:
     def todo_path(self):
         """Returns the absolute path to the user's todo.txt."""
         return os.path.abspath(os.path.join(self._root, 'todo.txt'))
+
+    @property
+    def num_rows(self):
+        """Number of terminal lines available."""
+        return self.screen.getmaxyx()[0] - 1
+
+    @property
+    def num_columns(self):
+        """Number of terminal characters available horizontally."""
+        return self.screen.getmaxyx()[1]
 
     @property
     def is_watching(self):
@@ -394,7 +394,7 @@ class TodoListViewer:
             self._run_subprocess(['todo.sh', 'nav', self.selected_id])
         # SPACE/RETURN: Enter item dialog
         elif self.has_selection and key in (ord(' '), ord('\n')):
-            Dialog(self.selected_item).run()
+            Dialog(self.screen, self.selected_item).run()
         # -/=: Bump priority
         elif self.has_selection and key in (ord('='), ord('-')):
             delta = 1 if key == ord('=') else -1
@@ -417,6 +417,9 @@ class TodoListViewer:
                 self._selected_line += 1
             else:
                 self._selected_line = row
+        # Resize events
+        elif key == curses.KEY_RESIZE:
+            curses.resizeterm(*self.screen.getmaxyx())
 
     def _set_item_priority(self, item, priority):
         if priority is None:
@@ -425,7 +428,7 @@ class TodoListViewer:
             self._run_subprocess(['todo.sh', 'pri', item[0], priority])
 
     def _move_selection_into_view(self):
-        num_rows = get_num_rows() - 1  # Leave one row for the status bar
+        num_rows = self.num_rows - 1  # Leave one row for the status bar
         self._selected_line = max(
             0, min(len(self._items) - 1, self._selected_line))
         if self._selected_line < self._scroll_offset:
@@ -435,8 +438,8 @@ class TodoListViewer:
 
     def _print(self, row, col, text, attr):
         num_chars = len(text)
-        if col + num_chars > get_num_columns():
-            num_chars = get_num_columns() - col
+        if col + num_chars > self.num_columns:
+            num_chars = self.num_columns - col
         if num_chars > 0:
             with suppress(curses.error):
                 self.screen.addnstr(row, col, text, num_chars, attr)
@@ -468,19 +471,19 @@ class TodoListViewer:
 
     def _render_statusbar(self):
         top = self._scroll_offset + 1
-        bottom = min(len(self._items), self._scroll_offset + get_num_rows())
+        bottom = min(len(self._items), self._scroll_offset + self.num_rows)
         total = len(self._all_items)
         text = 'FILTERING: {:}'.format(
             self._filter) if self._filter or self._filtering else ''
         attr = curses.color_pair(
             2 if self._filtering else 1) | curses.A_STANDOUT
         text = 'Showing {:}-{:}/{:} {:}'.format(top, bottom, total, text)
-        self._print(get_num_rows(), 0, text.ljust(get_num_columns() - 1), attr)
+        self._print(self.num_rows, 0, text.ljust(self.num_columns), attr)
 
     def _render(self):
         self.screen.erase()
         top = self._scroll_offset
-        bottom = self._scroll_offset + get_num_rows()
+        bottom = self._scroll_offset + self.num_rows
         for index, item in enumerate(self._items[top:bottom]):
             self._print_item(index, item, self.selected_id == item[0])
         self._render_statusbar()
