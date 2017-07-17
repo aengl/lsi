@@ -343,14 +343,17 @@ class TodoListViewer:
             self._set_item_priority(self.selected_item, chr(key))
         # 0: Remove priority
         elif self.has_selection and key == ord('0'):
-            self._run_subprocess(['todo.sh', 'depri', self.selected_id])
+            self._set_item_priority(self.selected_item, None)
         # Mouse events
         # elif key == curses.KEY_MOUSE:
         #     _, _, row, _, _ = curses.getmouse()
         #     self.selected_line = row
 
     def _set_item_priority(self, item, priority):
-        self._run_subprocess(['todo.sh', 'pri', item[0], priority])
+        if priority is None:
+            self._run_subprocess(['todo.sh', 'depri', item[0]])
+        else:
+            self._run_subprocess(['todo.sh', 'pri', item[0], priority])
         self.select_item(item[0])
 
     def _move_selection_into_view(self):
