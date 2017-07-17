@@ -14,6 +14,7 @@ If there are more priorities than colors, the last entry will be used for the
 remainder.
 """
 COLORS = [
+    '#FF7733',
     '#F5D761',
     '#A4F54C',
     '#78C1F3',
