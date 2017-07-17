@@ -100,19 +100,19 @@ class Dialog:
 
     def __init__(self, item):
         self.dialog = None
-        self.alive = True
+        self._alive = True
         self.item = item
 
     def run(self):
         """Shows the dialog and enters a rendering loop."""
         self._init()
-        while self.alive:
+        while self._alive:
             self._render()
             self._handle_input()
 
     def close(self):
         """Closes the dialog."""
-        self.alive = False
+        self._alive = False
 
     def _init(self):
         self.dialog = curses.newwin(5, get_num_columns(), 0, 0)
@@ -135,7 +135,7 @@ class TodoListViewer:
     @property
     def has_selection(self):
         """Returns True if a todo item is selected, False otherwise."""
-        return self.items and self.selected_line >= 0
+        return self._items and self._selected_line >= 0
 
     @property
     def selected_item(self):
@@ -143,7 +143,7 @@ class TodoListViewer:
         (item_id, line), item_id being the line number in the todo.txt and line
         being the text of that line.
         """
-        return self.items[self.selected_line] if self.items else None
+        return self._items[self._selected_line] if self._items else None
 
     @property
     def selected_id(self):
@@ -153,28 +153,28 @@ class TodoListViewer:
 
     # pylint: disable=W0622
     def __init__(self, root, simple_colors=False, filter=None):
-        self.root = root
         self.screen = None
-        self.scroll_offset = 0
-        self.selected_line = 0
-        self.alive = True
-        self.items = []
-        self.all_items = []
-        self.filter = filter or ''
-        self.filtering = False
-        self.simple_colors = simple_colors
-        self.num_colors = 0
-        self.num_reserved_colors = 0
-        self.num_color_variants = 0
+        self._root = root
+        self._scroll_offset = 0
+        self._selected_line = 0
+        self._alive = True
+        self._items = []
+        self._all_items = []
+        self._filter = filter or ''
+        self._filtering = False
+        self._simple_colors = simple_colors
+        self._num_colors = 0
+        self._num_reserved_colors = 0
+        self._num_color_variants = 0
 
     def run(self, *_):
         """Shows the viewer and enters a rendering loop."""
         try:
             self._init()
-            while self.alive:
+            while self._alive:
                 self._move_selection_into_view()
                 self._render()
-                if self.filtering:
+                if self._filtering:
                     self._handle_filter_input()
                 else:
                     self._handle_input()
@@ -183,7 +183,7 @@ class TodoListViewer:
 
     def close(self):
         """Closes the viewer."""
-        self.alive = False
+        self._alive = False
 
     def refresh(self):
         """Reads the todo items from filesystem and refreshes the view."""
@@ -195,9 +195,9 @@ class TodoListViewer:
 
     def select_item(self, item_id):
         """Selects the item with a specific id."""
-        for item_index, item in enumerate(self.items):
+        for item_index, item in enumerate(self._items):
             if item[0] == item_id:
-                self.selected_line = item_index
+                self._selected_line = item_index
                 break
 
     def _run_subprocess(self, command):
@@ -209,37 +209,35 @@ class TodoListViewer:
         self._read_todo_file()
         self.screen = curses.initscr()
         self.screen.keypad(1)
-        self.screen.border(0)
-        curses.noecho()
         curses.curs_set(0)
         # curses.mousemask(1)
         curses.start_color()
         if not curses.can_change_color():
-            self.simple_colors = True
-        if not self.simple_colors:
+            self._simple_colors = True
+        if not self._simple_colors:
             # Set reserved colors
             self._define_color(1, hex_to_rgb(COLOR_STATUSBAR))
             self._define_color(2, hex_to_rgb(COLOR_STATUSBAR_ACTIVE))
-            self.num_reserved_colors = 3
+            self._num_reserved_colors = 3
             # Set item colors
-            self.num_color_variants = 3
+            self._num_color_variants = 3
             for color_index, color in enumerate(COLORS):
-                color_index = color_index * self.num_color_variants + self.num_reserved_colors
+                color_index = color_index * self._num_color_variants + self._num_reserved_colors
                 self._define_color(color_index, hex_to_rgb(color))
                 self._define_color(color_index + 1, dim(hex_to_rgb(color)))
                 self._define_color(color_index + 2, lighten(hex_to_rgb(color)))
-            self.num_colors = len(COLORS)
+            self._num_colors = len(COLORS)
         else:
             # Set reserved colors
             curses.init_pair(1, 0, COLOR_STATUSBAR_FALLBACK)
             curses.init_pair(2, 0, COLOR_STATUSBAR_ACTIVE_FALLBACK)
-            self.num_reserved_colors = 3
+            self._num_reserved_colors = 3
             # Set item colors
-            self.num_color_variants = 1
+            self._num_color_variants = 1
             for color_index, color in enumerate(COLORS_FALLBACK):
-                color_index += self.num_reserved_colors
+                color_index += self._num_reserved_colors
                 curses.init_pair(color_index, color, 0)
-            self.num_colors = len(COLORS_FALLBACK)
+            self._num_colors = len(COLORS_FALLBACK)
 
     def _define_color(self, color_index, rgb):
         assert color_index > 0  # Don't overwrite background color
@@ -247,13 +245,13 @@ class TodoListViewer:
         curses.init_pair(color_index, color_index, 0)
 
     def _get_item_color_index(self, item):
-        priority = get_priority_as_number(item, maximum=self.num_colors - 1)
-        return priority * self.num_color_variants + self.num_reserved_colors
+        priority = get_priority_as_number(item, maximum=self._num_colors - 1)
+        return priority * self._num_color_variants + self._num_reserved_colors
 
     def _get_item_color_variants(self, item):
         color_index = self._get_item_color_index(item)
         pair = curses.color_pair
-        if self.simple_colors:
+        if self._simple_colors:
             return (
                 pair(color_index),
                 pair(color_index) | curses.A_DIM,
@@ -261,57 +259,57 @@ class TodoListViewer:
         else:
             return (
                 pair(color_index),
-                pair(color_index if self.simple_colors else color_index + 1),
-                pair(color_index if self.simple_colors else color_index + 2)
+                pair(color_index if self._simple_colors else color_index + 1),
+                pair(color_index if self._simple_colors else color_index + 2)
             )
 
     def _read_todo_file(self):
-        self.items.clear()
-        with open(os.path.join(self.root, 'todo.txt'), 'r') as todofile:
+        self._items.clear()
+        with open(os.path.join(self._root, 'todo.txt'), 'r') as todofile:
             lines = todofile.readlines()
         items = [(index + 1, line) for index, line in enumerate(lines)]
-        self.all_items = sorted(items, key=get_priority_as_number)
-        self.items = self.all_items
+        self._all_items = sorted(items, key=get_priority_as_number)
+        self._items = self._all_items
         self._apply_filter()
 
     def _apply_filter(self):
-        if not self.filter:
-            self.items = self.all_items
+        if not self._filter:
+            self._items = self._all_items
         else:
-            self.items = []
-            for item in self.all_items:
-                if self.filter.lower() in item[1].lower():
-                    self.items.append(item)
-        self.selected_line = 0
+            self._items = []
+            for item in self._all_items:
+                if self._filter.lower() in item[1].lower():
+                    self._items.append(item)
+        self._selected_line = 0
 
     def _handle_filter_input(self):
         key = self.screen.getch()
         if key in (ord('\n'), curses.KEY_UP, curses.KEY_DOWN, KEY_ESC):
-            self.filtering = False
+            self._filtering = False
         elif key == KEY_BACKSPACE:
-            self.filter = self.filter[:len(
-                self.filter) - 1] if self.filter else ''
+            self._filter = self._filter[:len(
+                self._filter) - 1] if self._filter else ''
         else:
-            self.filter += chr(key)
+            self._filter += chr(key)
         self._apply_filter()
 
     def _handle_input(self):
         key = self.screen.getch()
         # j/k: up/down
         if key in (ord('k'), curses.KEY_UP):
-            self.selected_line -= 1
+            self._selected_line -= 1
         elif key in (ord('j'), curses.KEY_DOWN):
-            self.selected_line += 1
+            self._selected_line += 1
         # HOME/END: scroll to top/bottom
         elif key == curses.KEY_HOME:
-            self.selected_line = 0
+            self._selected_line = 0
         elif key == curses.KEY_END:
-            self.selected_line = len(self.items) - 1
+            self._selected_line = len(self._items) - 1
         # q/ESC: cancel filter or quit
         elif key in (ord('q'), KEY_ESC):
-            if self.filter:
+            if self._filter:
                 selected = self.selected_id
-                self.filter = ''
+                self._filter = ''
                 self._apply_filter()
                 self.select_item(selected)
             else:
@@ -324,8 +322,8 @@ class TodoListViewer:
             self._run_subprocess(['todo.sh', 'edit'])
         # /: filter
         elif key == ord('/'):
-            self.filter = ''
-            self.filtering = True
+            self._filter = ''
+            self._filtering = True
         # d: done
         elif self.has_selection and key == ord('d'):
             self._run_subprocess(['todo.sh', 'do', self.selected_id])
@@ -349,7 +347,7 @@ class TodoListViewer:
         # Mouse events
         # elif key == curses.KEY_MOUSE:
         #     _, _, row, _, _ = curses.getmouse()
-        #     self.selected_line = row
+        #     self._selected_line = row
 
     def _set_item_priority(self, item, priority):
         if priority is None:
@@ -360,12 +358,12 @@ class TodoListViewer:
 
     def _move_selection_into_view(self):
         num_rows = get_num_rows() - 1  # Leave one row for the status bar
-        self.selected_line = max(
-            0, min(len(self.items) - 1, self.selected_line))
-        if self.selected_line < self.scroll_offset:
-            self.scroll_offset = self.selected_line
-        elif self.selected_line > num_rows + self.scroll_offset:
-            self.scroll_offset = self.selected_line - num_rows
+        self._selected_line = max(
+            0, min(len(self._items) - 1, self._selected_line))
+        if self._selected_line < self._scroll_offset:
+            self._scroll_offset = self._selected_line
+        elif self._selected_line > num_rows + self._scroll_offset:
+            self._scroll_offset = self._selected_line - num_rows
 
     def _print(self, row, col, chunks):
         for text, attr in chunks:
@@ -398,26 +396,26 @@ class TodoListViewer:
         ])
 
     def _render_statusbar(self):
-        top = self.scroll_offset + 1
-        bottom = min(len(self.items), self.scroll_offset + get_num_rows())
-        total = len(self.all_items)
+        top = self._scroll_offset + 1
+        bottom = min(len(self._items), self._scroll_offset + get_num_rows())
+        total = len(self._all_items)
         text = 'FILTERING: {:}'.format(
-            self.filter) if self.filter or self.filtering else ''
+            self._filter) if self._filter or self._filtering else ''
         attr = curses.color_pair(
-            2 if self.filtering else 1) | curses.A_STANDOUT
+            2 if self._filtering else 1) | curses.A_STANDOUT
         text = 'Showing {:}-{:}/{:} {:}'.format(top, bottom, total, text)
         self.screen.addnstr(get_num_rows(), 0, text.ljust(get_num_columns() - 1),
                             get_num_columns(), attr)
 
     def _render(self):
         self.screen.erase()
-        top = self.scroll_offset
-        bottom = self.scroll_offset + get_num_rows()
-        for index, item in enumerate(self.items[top:bottom]):
+        top = self._scroll_offset
+        bottom = self._scroll_offset + get_num_rows()
+        for index, item in enumerate(self._items[top:bottom]):
             self._print_item(index, item)
-        if self.items:
-            self._print_item(self.selected_line - self.scroll_offset,
-                             self.items[self.selected_line], True)
+        if self._items:
+            self._print_item(self._selected_line - self._scroll_offset,
+                             self._items[self._selected_line], True)
         self._render_statusbar()
         self.screen.refresh()
 
