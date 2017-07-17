@@ -5,6 +5,7 @@
 import os
 import re
 import sys
+import time
 import argparse
 import subprocess
 import curses
@@ -152,8 +153,19 @@ class TodoListViewer:
         item = self.selected_item
         return item[0] if item else None
 
+    @property
+    def todo_path(self):
+        """Returns the absolute path to the user's todo.txt."""
+        return os.path.abspath(os.path.join(self._root, 'todo.txt'))
+
+    @property
+    def is_watching(self):
+        """Returns True if the viewer will respond to changes in todo.txt."""
+        return self._observer is not None and self._watch
+
     # pylint: disable=W0622
-    def __init__(self, root, filter=None, simple_colors=False, mouse=False):
+    def __init__(self, root, filter=None, simple_colors=False, mouse=False,
+                 watch=True):
         self.screen = None
         self._root = root
         self._scroll_offset = 0
@@ -168,6 +180,12 @@ class TodoListViewer:
         self._num_reserved_colors = 0
         self._num_color_variants = 0
         self._mouse = mouse
+        self._watch = watch
+        self._observer = None
+
+    def __del__(self):
+        if self._observer:
+            self._observer.stop()
 
     def run(self, *_):
         """Shows the viewer and enters a rendering loop."""
@@ -192,6 +210,7 @@ class TodoListViewer:
         with self.retain_selection():
             self._read_todo_file()
             curses.flash()
+        self._render()
 
     def select_item_id(self, item_id):
         """Selects the item with a specific id."""
@@ -199,7 +218,6 @@ class TodoListViewer:
             if item[0] == item_id:
                 self._selected_line = item_index
                 break
-        self._render()
 
     @contextmanager
     def retain_selection(self):
@@ -209,11 +227,20 @@ class TodoListViewer:
         yield
         self.select_item_id(selected)
 
+    @contextmanager
+    def disable_watch(self):
+        """Don't watch for filesystem changes while in this context."""
+        prev = self._watch
+        self._watch = False
+        yield
+        self._watch = prev
+
     def _run_subprocess(self, command):
-        with self.retain_selection():
-            curses.endwin()
-            subprocess.run([str(x) for x in command])
-            self._init()
+        with self.disable_watch():
+            with self.retain_selection():
+                curses.endwin()
+                subprocess.run([str(x) for x in command])
+                self._init()
 
     def _init(self):
         self._read_todo_file()
@@ -222,7 +249,11 @@ class TodoListViewer:
         curses.curs_set(0)
         if self._mouse:
             curses.mousemask(1)
-        # Initialise colors
+        self._init_colors()
+        if self._watch:
+            self._init_watch()
+
+    def _init_colors(self):
         curses.start_color()
         if not curses.can_change_color():
             self._simple_colors = True
@@ -251,6 +282,26 @@ class TodoListViewer:
                 curses.init_pair(color_index, color, 0)
             self._num_colors = len(COLORS_FALLBACK)
 
+    def _init_watch(self):
+        if self._observer:
+            return
+        from watchdog.observers import Observer
+        from watchdog.events import FileSystemEventHandler
+        viewer = self
+
+        class _Watch(FileSystemEventHandler):
+            def on_modified(self, event):
+                if viewer.is_watching and event.src_path.endswith('todo.txt'):
+                    # It appears todotxt adds the priority in a second I/O,
+                    # so if we're responding too quickly there's a chance we
+                    # will miss it entirely.
+                    time.sleep(.1)
+                    viewer.refresh()
+
+        self._observer = Observer()
+        self._observer.schedule(_Watch(), self._root)
+        self._observer.start()
+
     def _define_color(self, color_index, rgb):
         assert color_index > 0  # Don't overwrite background color
         curses.init_color(color_index, *rgb)
@@ -277,7 +328,7 @@ class TodoListViewer:
 
     def _read_todo_file(self):
         self._items.clear()
-        with open(os.path.join(self._root, 'todo.txt'), 'r') as todofile:
+        with open(self.todo_path, 'r') as todofile:
             lines = todofile.readlines()
         items = [(index + 1, line) for index, line in enumerate(lines)]
         self._all_items = sorted(items, key=get_priority_as_number)
@@ -368,11 +419,10 @@ class TodoListViewer:
                 self._selected_line = row
 
     def _set_item_priority(self, item, priority):
-        with self.retain_selection():
-            if priority is None:
-                self._run_subprocess(['todo.sh', 'depri', item[0]])
-            else:
-                self._run_subprocess(['todo.sh', 'pri', item[0], priority])
+        if priority is None:
+            self._run_subprocess(['todo.sh', 'depri', item[0]])
+        else:
+            self._run_subprocess(['todo.sh', 'pri', item[0], priority])
 
     def _move_selection_into_view(self):
         num_rows = get_num_rows() - 1  # Leave one row for the status bar
@@ -430,30 +480,9 @@ class TodoListViewer:
         top = self._scroll_offset
         bottom = self._scroll_offset + get_num_rows()
         for index, item in enumerate(self._items[top:bottom]):
-            self._print_item(index, item)
-        if self._items:
-            self._print_item(self._selected_line - self._scroll_offset,
-                             self._items[self._selected_line], True)
+            self._print_item(index, item, self.selected_id == item[0])
         self._render_statusbar()
         self.screen.refresh()
-
-
-def watch_fs(path, callback):
-    """Tries to create a filesystem watcher. Will fail silently if dependencies
-    are missing. Calls the callback if a file in the path is modified."""
-    try:
-        from watchdog.observers import Observer
-        from watchdog.events import FileSystemEventHandler
-
-        class _Watch(FileSystemEventHandler):
-            def on_modified(self, _):
-                callback()
-
-        observer = Observer()
-        observer.schedule(_Watch(), path)
-        observer.start()
-    except ImportError:
-        pass
 
 
 def main():
@@ -461,16 +490,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('dir')
     parser.add_argument('filter', nargs='?', default=None)
-    parser.add_argument('-s', '--simple', dest='simple_colors', action='store_true',
+    parser.add_argument('-s', '--simple', action='store_true',
                         help='use simple colors for terminals that do not ' +
                         'support defining colors in RGB')
-    parser.add_argument('-m', '--mouse', dest='mouse', action='store_true',
+    parser.add_argument('-m', '--mouse', action='store_true',
                         help='enables mouse support')
-    parser.set_defaults(simple=False, mouse=False)
+    parser.add_argument('-w', '--watch', action='store_true',
+                        help='watches todo.txt for changes')
+    parser.set_defaults(simple=False, mouse=False, watch=False)
     args = parser.parse_args()
     viewer = TodoListViewer(args.dir, filter=args.filter,
-                            simple_colors=args.simple_colors, mouse=args.mouse)
-    watch_fs(args.dir, viewer.refresh)
+                            simple_colors=args.simple, mouse=args.mouse,
+                            watch=args.watch)
     curses.wrapper(viewer.run)
 
 
