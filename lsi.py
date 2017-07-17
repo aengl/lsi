@@ -9,7 +9,7 @@ import time
 import argparse
 import subprocess
 import curses
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 
 """Maps a priority to a color. First entry is priority A, second B, and so on.
 If there are more priorities than colors, the last entry will be used for the
@@ -433,15 +433,18 @@ class TodoListViewer:
         elif self._selected_line > num_rows + self._scroll_offset:
             self._scroll_offset = self._selected_line - num_rows
 
-    def _print(self, row, col, chunks):
+    def _print(self, row, col, text, attr):
+        num_chars = len(text)
+        if col + num_chars > get_num_columns():
+            num_chars = get_num_columns() - col
+        if num_chars > 0:
+            with suppress(curses.error):
+                self.screen.addnstr(row, col, text, num_chars, attr)
+        return num_chars
+
+    def _print_chunks(self, row, col, chunks):
         for text, attr in chunks:
-            num_chars = len(text)
-            if col + num_chars > get_num_columns():
-                num_chars = get_num_columns() - col
-                if num_chars <= 0:
-                    break  # No space left in the row
-            self.screen.addnstr(row, col, text, num_chars, attr)
-            col += num_chars
+            col += self._print(row, col, text, attr)
 
     def _get_color_for_word(self, item, word):
         color, color_dim, color_light = self._get_item_color_variants(item)
@@ -457,7 +460,7 @@ class TodoListViewer:
         linenum, line = item
         line = re.sub(RE_PRIORITY + ' ', '', line)  # Hide priorities
         line = re.sub(RE_DATE + ' ', '', line)  # Hide dates
-        self._print(index, 0, [
+        self._print_chunks(index, 0, [
             ('{:02d} '.format(linenum), color_dim | standout),
             *map(lambda word: (word + ' ',
                                self._get_color_for_word(item, word) | standout), line.split())
@@ -472,8 +475,7 @@ class TodoListViewer:
         attr = curses.color_pair(
             2 if self._filtering else 1) | curses.A_STANDOUT
         text = 'Showing {:}-{:}/{:} {:}'.format(top, bottom, total, text)
-        self.screen.addnstr(get_num_rows(), 0, text.ljust(get_num_columns() - 1),
-                            get_num_columns(), attr)
+        self._print(get_num_rows(), 0, text.ljust(get_num_columns() - 1), attr)
 
     def _render(self):
         self.screen.erase()
