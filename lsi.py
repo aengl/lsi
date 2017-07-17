@@ -8,6 +8,7 @@ import sys
 import argparse
 import subprocess
 import curses
+from contextlib import contextmanager
 
 """Maps a priority to a color. First entry is priority A, second B, and so on.
 If there are more priorities than colors, the last entry will be used for the
@@ -188,23 +189,31 @@ class TodoListViewer:
 
     def refresh(self):
         """Reads the todo items from filesystem and refreshes the view."""
-        selected = self.selected_id
-        self._read_todo_file()
-        curses.flash()
-        self.select_item(selected)
-        self._render()
+        with self.retain_selection():
+            self._read_todo_file()
+            curses.flash()
 
-    def select_item(self, item_id):
+    def select_item_id(self, item_id):
         """Selects the item with a specific id."""
         for item_index, item in enumerate(self._items):
             if item[0] == item_id:
                 self._selected_line = item_index
                 break
+        self._render()
+
+    @contextmanager
+    def retain_selection(self):
+        """On entering the context, saves the currently selected item and
+        makes sure it is selected when the exiting the context."""
+        selected = self.selected_id
+        yield
+        self.select_item_id(selected)
 
     def _run_subprocess(self, command):
-        curses.endwin()
-        subprocess.run([str(x) for x in command])
-        self._init()
+        with self.retain_selection():
+            curses.endwin()
+            subprocess.run([str(x) for x in command])
+            self._init()
 
     def _init(self):
         self._read_todo_file()
@@ -311,10 +320,9 @@ class TodoListViewer:
         # q/ESC: cancel filter or quit
         elif key in (ord('q'), KEY_ESC):
             if self._filter:
-                selected = self.selected_id
-                self._filter = ''
-                self._apply_filter()
-                self.select_item(selected)
+                with self.retain_selection():
+                    self._filter = ''
+                    self._apply_filter()
             else:
                 self.close()
         # r: refresh
@@ -360,11 +368,11 @@ class TodoListViewer:
                 self._selected_line = row
 
     def _set_item_priority(self, item, priority):
-        if priority is None:
-            self._run_subprocess(['todo.sh', 'depri', item[0]])
-        else:
-            self._run_subprocess(['todo.sh', 'pri', item[0], priority])
-        self.select_item(item[0])
+        with self.retain_selection():
+            if priority is None:
+                self._run_subprocess(['todo.sh', 'depri', item[0]])
+            else:
+                self._run_subprocess(['todo.sh', 'pri', item[0], priority])
 
     def _move_selection_into_view(self):
         num_rows = get_num_rows() - 1  # Leave one row for the status bar
