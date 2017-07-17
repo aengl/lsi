@@ -152,7 +152,7 @@ class TodoListViewer:
         return item[0] if item else None
 
     # pylint: disable=W0622
-    def __init__(self, root, simple_colors=False, filter=None):
+    def __init__(self, root, filter=None, simple_colors=False, mouse=False):
         self.screen = None
         self._root = root
         self._scroll_offset = 0
@@ -166,6 +166,7 @@ class TodoListViewer:
         self._num_colors = 0
         self._num_reserved_colors = 0
         self._num_color_variants = 0
+        self._mouse = mouse
 
     def run(self, *_):
         """Shows the viewer and enters a rendering loop."""
@@ -210,7 +211,9 @@ class TodoListViewer:
         self.screen = curses.initscr()
         self.screen.keypad(1)
         curses.curs_set(0)
-        # curses.mousemask(1)
+        if self._mouse:
+            curses.mousemask(1)
+        # Initialise colors
         curses.start_color()
         if not curses.can_change_color():
             self._simple_colors = True
@@ -345,9 +348,16 @@ class TodoListViewer:
         elif self.has_selection and key == ord('0'):
             self._set_item_priority(self.selected_item, None)
         # Mouse events
-        # elif key == curses.KEY_MOUSE:
-        #     _, _, row, _, _ = curses.getmouse()
-        #     self._selected_line = row
+        elif key == curses.KEY_MOUSE:
+            # Note: mouse support in curses seems to be pretty poor. I left this
+            # code in case someone wants to experiment with it.
+            _, _, row, _, state = curses.getmouse()
+            if state & 0x80000:  # Wheel down
+                self._selected_line -= 1
+            elif state & 0x8000000:  # Wheel up
+                self._selected_line += 1
+            else:
+                self._selected_line = row
 
     def _set_item_priority(self, item, priority):
         if priority is None:
@@ -443,13 +453,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('dir')
     parser.add_argument('filter', nargs='?', default=None)
-    parser.add_argument('--simple', dest='simple_colors', action='store_true',
+    parser.add_argument('-s', '--simple', dest='simple_colors', action='store_true',
                         help='use simple colors for terminals that do not ' +
                         'support defining colors in RGB')
-    parser.set_defaults(simple=False)
+    parser.add_argument('-m', '--mouse', dest='mouse', action='store_true',
+                        help='enables mouse support')
+    parser.set_defaults(simple=False, mouse=False)
     args = parser.parse_args()
-    viewer = TodoListViewer(
-        args.dir, simple_colors=args.simple_colors, filter=args.filter)
+    viewer = TodoListViewer(args.dir, filter=args.filter,
+                            simple_colors=args.simple_colors, mouse=args.mouse)
     watch_fs(args.dir, viewer.refresh)
     curses.wrapper(viewer.run)
 
