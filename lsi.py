@@ -235,10 +235,14 @@ class TodoListViewer:
         yield
         self._watch = prev
 
-    def _run_subprocess(self, command):
+    def _run_subprocess(self, command, retain_selection=True):
         with self.disable_watch():
-            with self.retain_selection():
-                curses.endwin()
+            curses.endwin()
+            if retain_selection:
+                with self.retain_selection():
+                    subprocess.run([str(x) for x in command])
+                    self._init()
+            else:
                 subprocess.run([str(x) for x in command])
                 self._init()
 
@@ -388,7 +392,8 @@ class TodoListViewer:
             self._filtering = True
         # d: done
         elif self.has_selection and key == ord('d'):
-            self._run_subprocess(['todo.sh', 'do', self.selected_id])
+            self._run_subprocess(
+                ['todo.sh', 'do', self.selected_id], retain_selection=False)
         # n: nav
         elif self.has_selection and key == ord('n'):
             self._run_subprocess(['todo.sh', 'nav', self.selected_id])
