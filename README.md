@@ -7,7 +7,7 @@ Install `todo-txt`:
 
     brew install todo-txt
 
-Then, configure your TODO_DIR by editing the config file in `~/.todo/config`.
+Then, configure your `TODO_DIR` by editing the config file in `~/.todo/config`.
 
 To install this extension:
 
@@ -15,6 +15,12 @@ To install this extension:
     git clone https://github.com/aengl/lsi.git
 
 If the directory doesn't exist, create it manually first.
+
+Optionally, the `watchdog` package needs to be installed (only if the `-w` flag is used).
+
+    pip3 install watchdog
+
+If you're using `iTerm`, don't forget to install shell integration and refer to [this issue](https://stackoverflow.com/questions/36594420/how-can-i-turn-off-scrolling-the-history-in-iterm2#37879399) for touch scrolling.
 
 ## Usage
 
@@ -40,6 +46,6 @@ Run the interactive viewer with:
 ## Command line arguments
 
 - You can pass an optional positional argument that will apply an initial filter.
-- `-s/--simple`: Enters simple mode for terminals that don't support defining custom colors. `Terminal` on macOS will need this, but `iTerm` will work fine without it.
+- `-s/--simple`: Enters simple mode for terminals that don't support defining custom colors. `Terminal` on macOS will need this, as will `Hyper`, but `iTerm` will work fine without it.
 - `-m/--mouse`: Experimental mouse support. Not recommended.
 - `-w/--watch`: Watches the todo.txt for changes and respond to changes in real-time.
