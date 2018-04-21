@@ -259,6 +259,7 @@ class TodoListViewer:
 
     def _init_colors(self):
         curses.start_color()
+        curses.use_default_colors()
         if not curses.can_change_color():
             self._simple_colors = True
         if not self._simple_colors:
@@ -276,14 +277,14 @@ class TodoListViewer:
             self._num_colors = len(COLORS)
         else:
             # Set reserved colors
-            curses.init_pair(1, 0, COLOR_STATUSBAR_FALLBACK)
-            curses.init_pair(2, 0, COLOR_STATUSBAR_ACTIVE_FALLBACK)
+            curses.init_pair(1, -1, COLOR_STATUSBAR_FALLBACK)
+            curses.init_pair(2, -1, COLOR_STATUSBAR_ACTIVE_FALLBACK)
             self._num_reserved_colors = 3
             # Set item colors
             self._num_color_variants = 1
             for color_index, color in enumerate(COLORS_FALLBACK):
                 color_index += self._num_reserved_colors
-                curses.init_pair(color_index, color, 0)
+                curses.init_pair(color_index, color, -1)
             self._num_colors = len(COLORS_FALLBACK)
 
     def _init_watch(self):
@@ -309,7 +310,7 @@ class TodoListViewer:
     def _define_color(self, color_index, rgb):
         assert color_index > 0  # Don't overwrite background color
         curses.init_color(color_index, *rgb)
-        curses.init_pair(color_index, color_index, 0)
+        curses.init_pair(color_index, color_index, -1)
 
     def _get_item_color_index(self, item):
         priority = get_priority_as_number(item, maximum=self._num_colors - 1)
