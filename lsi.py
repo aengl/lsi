@@ -63,7 +63,11 @@ def get_priority_as_number(item, maximum=sys.maxsize):
 def get_bumped_priority(item, delta):
     """Offsets and returns an item's priority by delta (positive -> higher)."""
     priority = get_priority(item)
-    return chr(max(ord('A'), min(ord('Z'), ord(priority) - delta)))
+    if priority is not None:
+        return chr(max(ord('A'), min(ord('Z'), ord(priority) - delta)))
+    # TODO: if the item has no priority yet, it should be assigned the lowest
+    # *used* priority
+    return None
 
 
 def hex_to_rgb(col):
